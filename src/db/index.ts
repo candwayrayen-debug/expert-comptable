@@ -1,57 +1,113 @@
-import { drizzle } from "drizzle-orm/node-postgres";
+import { getConnectionString } from "@netlify/database";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
-const databaseUrl = process.env.DATABASE_URL;
+/**
+ * Connexion PostgreSQL.
+ *
+ * Deux sources possibles, essayées dans cet ordre :
+ *
+ *  1. **Netlify Database** — la base gérée par Netlify, créée automatiquement
+ *     au premier déploiement. La plateforme l'annonce à l'application par la
+ *     variable `NETLIFY_DB_URL` : aucun compte à ouvrir, aucune chaîne de
+ *     connexion à recopier, aucune migration à lancer à la main.
+ *  2. **`DATABASE_URL`** — n'importe quel autre PostgreSQL, si vous préférez
+ *     gérer le vôtre : une base locale en développement, ou un service externe
+ *     (Supabase, Neon…). L'application s'en sert sans rien changer au code.
+ *
+ * Aucune des deux n'est obligatoire pour démarrer : le site public se rabat
+ * alors sur le contenu livré avec le code. Seul l'espace d'administration
+ * exige une base, puisque c'est là que sont enregistrés le contenu, les
+ * messages reçus et les images.
+ */
 
-if (!databaseUrl) {
-  throw new Error(
-    "DATABASE_URL est requis. Copiez .env.example vers .env.local et renseignez la connexion PostgreSQL.",
+type Connexion = { url: string; origine: string };
+
+function trouverConnexion(): Connexion | null {
+  // Hors de Netlify, `getConnectionString()` lève une exception : c'est le cas
+  // normal en développement local, on passe simplement à `DATABASE_URL`.
+  try {
+    const depuisNetlify = getConnectionString();
+    if (depuisNetlify) return { url: depuisNetlify, origine: "Netlify Database" };
+  } catch {
+    /* pas de base Netlify dans cet environnement */
+  }
+
+  const depuisEnvironnement = process.env.DATABASE_URL?.trim();
+  if (depuisEnvironnement) {
+    return { url: depuisEnvironnement, origine: "DATABASE_URL" };
+  }
+
+  return null;
+}
+
+type Base = { pool: Pool; db: NodePgDatabase<Record<string, never>> };
+
+// En développement, le rechargement à chaud réexécute les modules à chaque
+// modification de fichier : sans ce cache sur l'objet global, on rouvrirait un
+// pool de connexions à chaque fois.
+const globalPourLaBase = globalThis as typeof globalThis & { __cbsBase?: Base };
+
+function ouvrirBase(): Base {
+  if (globalPourLaBase.__cbsBase) return globalPourLaBase.__cbsBase;
+
+  const connexion = trouverConnexion();
+  if (!connexion) {
+    throw new Error(
+      "Aucune base de données n'est configurée : le site public fonctionne, mais l'espace d'administration ne peut rien enregistrer. Sur Netlify, la base est créée automatiquement (voir le README) ; ailleurs, renseignez DATABASE_URL.",
+    );
+  }
+
+  // Un hébergement serverless (Netlify, Vercel) crée une instance de fonction
+  // par invocation concurrente, et donc une connexion à la base pour chacune.
+  // Un pool large épuiserait le quota de connexions : on le limite à une seule
+  // par instance et on laisse la base mutualiser de son côté.
+  const sansServeur = Boolean(
+    process.env.NETLIFY ||
+      process.env.NETLIFY_DB_URL ||
+      process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME,
   );
+
+  const avecPooler = /pooler\.supabase\.com|pgbouncer=true/.test(connexion.url);
+  const locale = /@(localhost|127\.0\.0\.1|\[::1\])(:|\/)/.test(connexion.url);
+  // Une base distante impose TLS. Si la chaîne le précise déjà (`sslmode=…`),
+  // on la laisse décider : inutile de repasser par-dessus.
+  const tlsImpose = !locale && !/[?&]sslmode=/.test(connexion.url);
+
+  const pool = new Pool({
+    connectionString: connexion.url,
+    max: sansServeur || avecPooler ? 1 : 10,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 15_000,
+    ...(tlsImpose ? { ssl: { rejectUnauthorized: false } } : {}),
+  });
+
+  const base: Base = { pool, db: drizzle(pool) };
+  globalPourLaBase.__cbsBase = base;
+
+  if (connexion.origine === "DATABASE_URL") {
+    console.info(`Base de données : ${new URL(connexion.url).host} (via DATABASE_URL)`);
+  }
+
+  return base;
 }
 
 /**
- * Un hébergement serverless (Netlify, Vercel) crée une instance de fonction par
- * invocation concurrente, et donc une connexion à la base pour chacune. Un pool
- * large épuiserait le quota de connexions en quelques requêtes simultanées :
- * on le limite à une connexion par instance et on laisse le pooler de la base
- * (PgBouncer chez Supabase, port 6543) mutualiser.
- *
- * Une connexion en cours ne survit pas à la fin de l'invocation : le pool ne
- * sert donc qu'à éviter de rouvrir une connexion plusieurs fois au sein d'une
- * même requête.
+ * La connexion n'est ouverte qu'au premier usage : importer ce module ne suffit
+ * pas à en établir une. Un déploiement sans base — ou un build avant que la
+ * base ne soit prête — n'échoue donc pas au chargement ; les lectures de
+ * contenu, elles, retombent sur le contenu livré (voir `src/lib/content.ts`).
  */
-const serverless = Boolean(
-  process.env.NETLIFY || process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME,
+export const db: NodePgDatabase<Record<string, never>> = new Proxy(
+  {} as NodePgDatabase<Record<string, never>>,
+  {
+    get(_cible, propriete, recepteur) {
+      const reelle = ouvrirBase().db;
+      const valeur = Reflect.get(reelle, propriete, recepteur) as unknown;
+      // Les méthodes doivent rester liées à l'instance réelle, sinon `select`,
+      // `insert`… perdraient leur `this` en passant par le Proxy.
+      return typeof valeur === "function" ? valeur.bind(reelle) : valeur;
+    },
+  },
 );
-
-const usesPooler = /pooler\.supabase\.com|pgbouncer=true/.test(databaseUrl);
-
-/** Une base distante impose TLS ; une base locale s'en passe. */
-const isLocal = /@(localhost|127\.0\.0\.1|\[::1\])(:|\/)/.test(databaseUrl);
-
-const globalForDb = globalThis as typeof globalThis & {
-  __cbsPostgresPool?: Pool;
-};
-
-export const pool =
-  globalForDb.__cbsPostgresPool ??
-  new Pool({
-    connectionString: databaseUrl,
-    max: serverless || usesPooler ? 1 : 10,
-    // Le pooler de Supabase ferme les connexions inactives de son côté ;
-    // on libère donc les nôtres plus tôt pour ne pas garder de sockets morts.
-    idleTimeoutMillis: usesPooler ? 5_000 : 30_000,
-    connectionTimeoutMillis: 10_000,
-    // Les hébergeurs gérés exigent TLS. Le certificat n'est pas vérifié contre
-    // les autorités du système : à durcir avec le certificat de l'hébergeur si
-    // votre politique de sécurité l'impose.
-    ssl: isLocal ? undefined : { rejectUnauthorized: false },
-  });
-
-// En développement, le rechargement à chaud recréerait un pool à chaque
-// modification de fichier sans ce cache sur l'objet global.
-if (process.env.NODE_ENV !== "production") {
-  globalForDb.__cbsPostgresPool = pool;
-}
-
-export const db = drizzle(pool);
