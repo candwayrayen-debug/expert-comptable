@@ -23,113 +23,110 @@ Next.js 16 (App Router) · React 19 · Tailwind CSS 4 · Drizzle ORM sur Postgre
 
 ```bash
 npm install
-cp .env.example .env.local     # renseignez DATABASE_URL et ADMIN_PASSWORD
-npx drizzle-kit migrate        # crée les tables
 npm run dev                    # http://localhost:3000
 ```
 
-La page publique fonctionne dès le premier lancement : tant que la base ne
-contient aucun contenu, elle affiche celui livré avec le site. Pour le rendre
-modifiable, ouvrez `/admin` et cliquez sur **Importer le contenu par défaut**
-(l'opération est idempotente et n'affecte pas les messages reçus).
+Le site s'affiche immédiatement, avec le contenu livré dans
+`src/lib/content-defaults.ts`. **Aucune base de données n'est nécessaire pour
+le consulter.**
+
+L'espace `/admin`, lui, a besoin d'une base — c'est là que sont enregistrés le
+contenu modifié, les messages reçus et les images. Deux façons d'en avoir une :
+
+- **avec la CLI Netlify** (`npm i -g netlify-cli`, puis `netlify link` et
+  `netlify dev`) : la base du site est accessible en local, telle quelle, sans
+  rien configurer ;
+- **avec un PostgreSQL local** : renseignez `DATABASE_URL` dans `.env.local`
+  (voir `.env.example`), puis `npx drizzle-kit migrate` pour créer les tables.
+
+Une fois une base en place : ouvrez `/admin`, connectez-vous, puis cliquez sur
+**Importer le contenu par défaut**. L'opération est idempotente et n'affecte
+pas les messages reçus.
 
 ## Déploiement sur Netlify
 
-Le projet est prêt à être déployé tel quel : `netlify.toml` déclare le greffon
-officiel `@netlify/plugin-nextjs`, qui adapte le rendu serveur, les routes
-d'API et les Server Actions au modèle serverless de Netlify.
+Le site utilise **Netlify Database**, la base PostgreSQL gérée par Netlify.
+Elle est créée automatiquement au premier déploiement : il n'y a aucun compte
+à ouvrir chez un fournisseur, aucune chaîne de connexion à recopier, aucun mot
+de passe à retrouver, et aucune migration à lancer à la main.
 
-### 1. Créer la base sur Supabase
+1. Sur [app.netlify.com](https://app.netlify.com) : **Add new site → Import an
+   existing project**, choisissez le dépôt GitHub, puis la branche à publier.
+2. Ne touchez à rien dans les réglages de build : `netlify.toml` fournit déjà
+   la commande (`npm run build`), le dossier publié (`.next`), la version de
+   Node et le greffon Next.js.
+3. Dans **Site configuration → Environment variables**, ajoutez une seule
+   variable : `ADMIN_PASSWORD`, le mot de passe de l'espace `/admin`
+   (8 caractères minimum). Les autres sont facultatives.
+4. Lancez le déploiement. Le journal de build doit mentionner la mise en place
+   de la base, puis l'application des migrations.
 
-1. Créez un projet sur [supabase.com](https://supabase.com), en notant le mot de
-   passe de la base demandé à la création.
-2. Ouvrez **Connect** (bouton en haut du tableau de bord) et copiez la chaîne
-   **Connection pooling / Transaction** — port **6543**. La connexion directe
-   (port 5432) est en IPv6 seul et chaque appel de fonction ouvre sa propre
-   connexion : sans pooler, le quota est épuisé en quelques requêtes.
-3. Remplacez `[YOUR-PASSWORD]` par le mot de passe de la base. S'il est perdu,
-   régénérez-le dans **Settings → Database → Reset database password** ; les
-   clés d'API ne le remplacent pas.
+Ouvrez ensuite `/admin`, connectez-vous avec ce mot de passe, et cliquez sur
+**Importer le contenu par défaut**. `GET /api/health` doit renvoyer
+`{"ok":true}`. Les déploiements suivants partent automatiquement à chaque
+`git push` sur la branche publiée.
 
-La chaîne ressemble à :
+### Ce dont Netlify s'occupe tout seul
 
-```
-postgresql://postgres.abcdefgh:motdepasse@aws-0-eu-west-3.pooler.supabase.com:6543/postgres
-```
-
-> **À ne pas confondre.** Supabase expose deux familles d'identifiants. Les clés
-> d'API — `SUPABASE_URL`, clé *publishable*, clé *secret*, URL JWKS — servent son
-> API REST et son authentification. L'application n'en a pas besoin : elle parle
-> directement à PostgreSQL via Drizzle. Le seul identifiant requis est la chaîne
-> **`DATABASE_URL`**, avec le mot de passe de la base. La clé *secret* ne doit
-> jamais être exposée côté navigateur ni versionnée.
-
-### 2. Créer les tables
-
-Depuis votre machine, avec la chaîne de connexion de Supabase :
-
-```bash
-DATABASE_URL='postgresql://…pooler.supabase.com:6543/postgres' npx drizzle-kit migrate
-```
-
-À relancer à chaque nouvelle migration. L'application ne modifie jamais le
-schéma d'elle-même.
-
-### 3. Déployer
-
-1. Sur [app.netlify.com](https://app.netlify.com), **Add new site → Import an
-   existing project**, puis choisissez le dépôt GitHub.
-2. Netlify propose `npm run build` et publie `.next` : ce sont les valeurs de
-   `netlify.toml`, il n'y a rien à corriger.
-3. Dans **Site configuration → Environment variables**, ajoutez les variables
-   du tableau ci-dessous, puis relancez un déploiement.
-
-| Variable | Valeur sur Netlify |
+| Étape | Qui s'en charge |
 | --- | --- |
-| `DATABASE_URL` | Chaîne *Connection pooling* de Supabase (port 6543) |
-| `ADMIN_PASSWORD` | Mot de passe de l'espace `/admin`, 8 caractères minimum |
-| `ADMIN_SESSION_SECRET` | 64 caractères hexadécimaux, voir ci-dessous |
+| Création de la base PostgreSQL | Netlify, au premier déploiement |
+| Application des migrations | Netlify, juste avant chaque mise en ligne |
+| Sauvegardes | Netlify (3 jours sur l'offre gratuite) |
+| HTTPS, CDN, domaine personnalisé | Netlify |
 
-### 4. Après le déploiement
+L'application reçoit la connexion par la variable `NETLIFY_DB_URL`, que Netlify
+injecte elle-même dans les builds, les fonctions et `netlify dev` : c'est pour
+cela qu'il n'y a rien à configurer. `src/db/index.ts` lit cette variable en
+priorité, et se rabat sur `DATABASE_URL` si vous préférez votre propre base.
 
-- Ouvrez `/admin`, connectez-vous, puis **Importer le contenu par défaut**.
-- Vérifiez `GET /api/health` : il doit renvoyer `{"ok":true}`.
-- Les déploiements suivants sont automatiques à chaque `git push` sur la
-  branche de production.
+### Ajouter une migration plus tard
+
+`npm run db:generate` génère le fichier SQL avec Drizzle, puis le recopie
+automatiquement dans `netlify/database/migrations/`, le dossier que Netlify
+applique. Il n'y a donc rien d'autre à faire : committez, poussez, et la
+migration part avec le déploiement.
+
+N'utilisez jamais `db:migrate` ni `db:push` contre la base Netlify : c'est
+Netlify qui applique les migrations. Ces deux commandes ne servent qu'à une
+base locale.
+
+### Coût
+
+L'offre gratuite inclut 3 bases de 5 Go et 300 crédits par mois. Une base
+consomme des crédits quand elle travaille, et s'endort après 5 minutes sans
+requête ; pour un site vitrine, la consommation reste très en deçà du quota.
+Si le trafic augmente, l'offre Personal (9 $/mois, 1 000 crédits) laisse une
+marge très large.
 
 ### Bon à savoir
 
 - **Images** : elles sont stockées dans la table `images`, pas sur le disque.
   Le système de fichiers d'une fonction serverless est en lecture seule et
   n'est pas conservé d'un déploiement à l'autre. Les images sont donc
-  sauvegardées avec la base — un `pg_dump` suffit à tout emporter, et
-  l'application reste déployable ailleurs sans dépendre d'un service tiers.
+  sauvegardées avec la base, et l'application reste déployable ailleurs sans
+  dépendre d'un service tiers.
 - **Taille des envois** : Netlify plafonne le corps d'une fonction synchrone à
   6 Mo, et les envois binaires y sont encodés en base64 (+30 %). La limite est
   donc fixée à 4 Mo par image, ce qui laisse une marge confortable sous ce
   plafond et garantit que le message d'erreur affiché est le nôtre.
-- **Variables au build** : `DATABASE_URL` est lue pendant le build, pas seulement
-  à l'exécution — la page d'accueil et le pied de page sont pré-générés à
-  partir de la base. Un build sans elle échoue sur
-  « DATABASE_URL est requis ». Les variables déclarées dans *Site
-  configuration* de Netlify sont disponibles au build comme à l'exécution ;
-  ne les restreignez pas au seul contexte *Functions*.
-- **Connexion à la base** : si le pooler en mode *transaction* (6543) refuse
-  les requêtes avec une erreur de *prepared statement*, basculez sur le mode
-  *Session* de la même page **Connect** (même hôte, port 5432) : il ne
-  mutualise pas aussi bien, mais il accepte tout.
 - **Durée d'exécution** : 60 secondes maximum par appel de fonction.
-- **Coût** : une image est servie par une fonction tant qu'elle n'est pas en
-  cache. L'en-tête `Cache-Control: immutable` posé par la route de diffusion
-  et l'optimiseur d'images de Next.js limitent les lectures répétées.
+- **Coût des images** : chacune est servie par une fonction tant qu'elle n'est
+  pas en cache. L'en-tête `Cache-Control: immutable` posé par la route de
+  diffusion et l'optimiseur d'images de Next.js limitent les lectures répétées.
+- **Déjà un PostgreSQL ?** L'application accepte n'importe quelle base :
+  renseignez `DATABASE_URL` (Supabase, Neon…). Sur Supabase, prenez la chaîne
+  *Connection pooling* (port 6543) plutôt que la connexion directe, et
+  appliquez les migrations avec `npx drizzle-kit migrate`.
 
 ## Variables d'environnement
 
 | Variable | Obligatoire | Rôle |
 | --- | --- | --- |
-| `DATABASE_URL` | oui | Connexion PostgreSQL. Sans elle, `src/db/index.ts` lève une erreur au chargement. En production, utilisez la chaîne du pooler. |
-| `ADMIN_PASSWORD` | en production | Mot de passe unique de l'espace d'administration (8 caractères minimum). |
-| `ADMIN_SESSION_SECRET` | en production | Clé de signature des cookies de session. À défaut, une clé est dérivée du mot de passe. |
+| `NETLIFY_DB_URL` | — | Renseignée par Netlify, jamais à saisir : c'est la connexion à la base de la plateforme, injectée dans les builds, les fonctions et `netlify dev`. |
+| `DATABASE_URL` | non | Connexion à **votre** PostgreSQL, si vous préférez le vôtre. Inutile sur Netlify. |
+| `ADMIN_PASSWORD` | oui | Mot de passe unique de l'espace d'administration (8 caractères minimum). Sur Netlify, c'est la seule variable à déclarer. |
+| `ADMIN_SESSION_SECRET` | recommandé | Clé de signature des cookies de session. À défaut, une clé est dérivée du mot de passe. |
 
 Générer un secret :
 
@@ -146,9 +143,10 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `npm start` | Serveur de production |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | TypeScript, sans émission |
-| `npm run db:generate` | Génère une migration à partir de `src/db/schema.ts` |
-| `npm run db:migrate` | Applique les migrations |
-| `npm run db:push` | Synchronise le schéma sans fichier de migration (développement) |
+| `npm run db:generate` | Génère une migration depuis `src/db/schema.ts`, puis la recopie dans `netlify/database/migrations/` |
+| `npm run db:migrations:sync` | Recopie seule, si besoin |
+| `npm run db:migrate` | Applique les migrations à **votre base locale** (jamais à celle de Netlify, qui s'en charge) |
+| `npm run db:push` | Synchronise le schéma sans fichier de migration (développement local uniquement) |
 | `npm run db:studio` | Explorateur de base Drizzle Studio |
 
 ## La galerie
@@ -226,6 +224,10 @@ explicite de l'administrateur, qui masque l'élément correspondant sur le site.
 
 - La page d'accueil est statique avec un délai de revalidation de 5 minutes ;
   chaque enregistrement depuis l'administration la revalide immédiatement.
+- L'application démarre et se construit **sans base de données** : la connexion
+  n'est ouverte qu'à la première requête, et les lectures de contenu se
+  rabattent sur `src/lib/content-defaults.ts` si elle est absente ou
+  injoignable. Un premier déploiement ne peut donc pas échouer faute de base.
 - Les sections dont la collection est vide ne sont pas rendues.
 - L'export CSV utilise le point-virgule et un BOM UTF-8, pour une ouverture
   directe dans Excel en configuration francophone.
