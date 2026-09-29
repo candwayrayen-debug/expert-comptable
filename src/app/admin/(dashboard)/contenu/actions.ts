@@ -9,7 +9,7 @@ import { requireAdmin } from "@/lib/auth";
 import { isContentSeeded } from "@/lib/content";
 import { COLLECTIONS, isCollectionKey, validateItemData, type CollectionKey } from "@/lib/content-schema";
 import { seedContent } from "@/lib/seed";
-import { deleteUpload, isFileLike, saveImage } from "@/lib/uploads";
+import { deleteImage, isFileLike, saveImage } from "@/lib/image-store";
 import type { FormState } from "@/lib/form-state";
 
 function revalidateSite(): void {
@@ -89,8 +89,8 @@ async function resolveImageFields(
 }
 
 /**
- * Supprime un fichier téléversé s'il n'est plus référencé par aucun élément de
- * contenu. `jsonb_each_text` parcourt les valeurs textuelles de la ligne : la
+ * Supprime une image téléversée si plus aucun élément de contenu ne la
+ * référence. `jsonb_each_text` parcourt les valeurs textuelles de la ligne : la
  * recherche reste valable quel que soit le nom du champ qui porte l'image.
  */
 async function releaseImage(publicPath: unknown): Promise<void> {
@@ -101,15 +101,15 @@ async function releaseImage(publicPath: unknown): Promise<void> {
     .from(contentItems)
     .where(sql`exists (select 1 from jsonb_each_text(${contentItems.data}) as kv where kv.value = ${publicPath})`);
 
-  if ((row?.value ?? 0) === 0) await deleteUpload(publicPath);
+  if ((row?.value ?? 0) === 0) await deleteImage(publicPath);
 }
 
-/** Chemins d'image présents dans la donnée d'un élément. */
+/** Adresses des images présentes dans la donnée d'un élément. */
 function imagePaths(data: Record<string, unknown>): string[] {
-  return Object.values(data).filter((value): value is string => typeof value === "string" && value.startsWith("/uploads/"));
+  return Object.values(data).filter((value): value is string => typeof value === "string" && value.startsWith("/api/images/"));
 }
 
-/** Supprime les fichiers écrits pendant une requête qui n'aboutit pas. */
+/** Supprime les images enregistrées pendant une requête qui n'aboutit pas. */
 async function discardUploads(paths: string[]): Promise<void> {
   for (const path of paths) await releaseImage(path);
 }

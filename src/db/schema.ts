@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  customType,
   index,
   integer,
   jsonb,
@@ -11,6 +12,11 @@ import {
   timestamp,
   varchar,
 } from "drizzle-orm/pg-core";
+
+/** Drizzle ne fournit pas de type `bytea` : on le déclare. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+});
 
 /** Statuts du cycle de vie d'une demande de contact. */
 export const MESSAGE_STATUSES = ["nouveau", "lu", "traite", "archive"] as const;
@@ -67,6 +73,24 @@ export const settings = pgTable("settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+/**
+ * Images téléversées depuis l'administration, stockées en base.
+ *
+ * L'hébergement étant serverless, le disque est en lecture seule et les
+ * fichiers écrits à l'exécution ne survivraient pas à un déploiement. La clé
+ * est l'empreinte SHA-256 tronquée du contenu : deux envois du même visuel
+ * partagent donc une seule ligne, et l'adresse de diffusion peut être mise en
+ * cache indéfiniment.
+ */
+export const images = pgTable("images", {
+  key: varchar("key", { length: 40 }).primaryKey(),
+  contentType: varchar("content_type", { length: 60 }).notNull(),
+  bytes: integer("bytes").notNull(),
+  data: bytea("data").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type MessageRow = typeof messages.$inferSelect;
+export type ImageRow = typeof images.$inferSelect;
 export type ContentItemRow = typeof contentItems.$inferSelect;
 export type SettingRow = typeof settings.$inferSelect;

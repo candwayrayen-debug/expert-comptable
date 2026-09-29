@@ -6,6 +6,9 @@ node_modules/
 # testing
 coverage/
 
+# netlify
+.netlify/
+
 # next.js
 .next/
 out/
@@ -26,10 +29,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-
-# uploads : les images envoyées depuis /admin sont des données d'exploitation,
-# pas du code. En production elles sont sauvegardées avec la base de données.
-public/uploads/
 
 # env files
 .env

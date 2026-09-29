@@ -2,7 +2,7 @@
 
 import { ImagePlus, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { ACCEPTED_FORMATS_LABEL, ACCEPTED_MIME, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "@/lib/upload-rules";
+import { ACCEPTED_FORMATS_LABEL, ACCEPTED_MIME, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "@/lib/image-rules";
 
 /**
  * Champ d'image : aperçu de l'image en place, sélection d'un nouveau fichier,

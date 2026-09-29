@@ -1,0 +1,18 @@
+# Configuration de déploiement Netlify.
+#
+# Le greffon officiel adapte Next.js au modèle serverless de Netlify : il
+# transforme le rendu serveur, les routes d'API et les Server Actions en
+# fonctions Netlify. Il est déclaré explicitement, car en son absence Netlify
+# peut n'uploader que les fichiers statiques et servir un 404 sur les routes
+# dynamiques (dont /admin).
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  # Next.js 16 exige Node 20.9 ou supérieur.
+  NODE_VERSION = "22"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

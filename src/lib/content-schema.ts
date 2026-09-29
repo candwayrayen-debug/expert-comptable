@@ -1,5 +1,5 @@
 import { ICON_NAMES } from "@/lib/icons";
-import { isUploadPath } from "@/lib/upload-rules";
+import { MAX_UPLOAD_LABEL, isImagePath } from "@/lib/image-rules";
 
 /**
  * Description déclarative du contenu éditorial. Ce fichier est la source de
@@ -161,7 +161,9 @@ export const COLLECTIONS: Record<CollectionKey, CollectionDef> = {
         label: "Image",
         type: "image",
         required: true,
-        hint: "JPEG, PNG, WebP ou AVIF · 5 Mo maximum · 1600 px de large suffisent.",
+        hint: `JPEG, PNG, WebP ou AVIF · ${MAX_UPLOAD_LABEL} maximum · 1600 px de large suffisent.`,
+      // La limite affichée vient de la même constante que celle appliquée à
+      // l’envoi : impossible d’annoncer une valeur et d’en appliquer une autre.
       },
       {
         name: "caption",
@@ -374,7 +376,7 @@ export function validateItemData(collection: CollectionKey, form: FormData): Val
           data[field.name] = null;
           break;
         }
-        if (!isUploadPath(raw)) {
+        if (!isImagePath(raw)) {
           errors[field.name] = "Cette image n’est pas gérée par le cabinet.";
           break;
         }
