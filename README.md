@@ -41,17 +41,28 @@ d'API et les Server Actions au modèle serverless de Netlify.
 
 ### 1. Créer la base sur Supabase
 
-1. Créez un projet sur [supabase.com](https://supabase.com).
-2. Dans **Connect**, copiez la chaîne *Connection pooling* (port **6543**),
-   et non la connexion directe (port 5432) : chaque appel de fonction ouvre
-   sa propre connexion, et le pooler évite d'épuiser le quota.
-3. Remplacez `[YOUR-PASSWORD]` par le mot de passe de la base.
+1. Créez un projet sur [supabase.com](https://supabase.com), en notant le mot de
+   passe de la base demandé à la création.
+2. Ouvrez **Connect** (bouton en haut du tableau de bord) et copiez la chaîne
+   **Connection pooling / Transaction** — port **6543**. La connexion directe
+   (port 5432) est en IPv6 seul et chaque appel de fonction ouvre sa propre
+   connexion : sans pooler, le quota est épuisé en quelques requêtes.
+3. Remplacez `[YOUR-PASSWORD]` par le mot de passe de la base. S'il est perdu,
+   régénérez-le dans **Settings → Database → Reset database password** ; les
+   clés d'API ne le remplacent pas.
 
 La chaîne ressemble à :
 
 ```
 postgresql://postgres.abcdefgh:motdepasse@aws-0-eu-west-3.pooler.supabase.com:6543/postgres
 ```
+
+> **À ne pas confondre.** Supabase expose deux familles d'identifiants. Les clés
+> d'API — `SUPABASE_URL`, clé *publishable*, clé *secret*, URL JWKS — servent son
+> API REST et son authentification. L'application n'en a pas besoin : elle parle
+> directement à PostgreSQL via Drizzle. Le seul identifiant requis est la chaîne
+> **`DATABASE_URL`**, avec le mot de passe de la base. La clé *secret* ne doit
+> jamais être exposée côté navigateur ni versionnée.
 
 ### 2. Créer les tables
 
@@ -103,6 +114,10 @@ schéma d'elle-même.
   « DATABASE_URL est requis ». Les variables déclarées dans *Site
   configuration* de Netlify sont disponibles au build comme à l'exécution ;
   ne les restreignez pas au seul contexte *Functions*.
+- **Connexion à la base** : si le pooler en mode *transaction* (6543) refuse
+  les requêtes avec une erreur de *prepared statement*, basculez sur le mode
+  *Session* de la même page **Connect** (même hôte, port 5432) : il ne
+  mutualise pas aussi bien, mais il accepte tout.
 - **Durée d'exécution** : 60 secondes maximum par appel de fonction.
 - **Coût** : une image est servie par une fonction tant qu'elle n'est pas en
   cache. L'en-tête `Cache-Control: immutable` posé par la route de diffusion
