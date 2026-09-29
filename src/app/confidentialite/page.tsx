@@ -9,6 +9,10 @@ export const metadata: Metadata = {
   description: "Comment le cabinet Ben Salem traite les informations transmises via son formulaire de contact.",
 };
 
+// Le pied de page reprend les coordonnées gérées depuis /admin : la page est
+// donc revalidée en arrière-plan pour rester alignée sur les réglages.
+export const revalidate = 300;
+
 export default function PrivacyPage() {
   return (
     <>

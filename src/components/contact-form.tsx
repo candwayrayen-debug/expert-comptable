@@ -2,15 +2,21 @@
 
 import { ArrowRight, Check } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { SERVICES } from "@/lib/services";
 
 const initialState = { name: "", company: "", email: "", phone: "", service: "", message: "", consent: false };
 
-export function ContactForm() {
+/**
+ * `services` provient du contenu éditable du site (collection « Expertises »)
+ * et non d'une constante : l'administrateur peut donc renommer une expertise
+ * sans qu'elle disparaisse du formulaire.
+ */
+export function ContactForm({ services, phone }: { services: string[]; phone: string }) {
   const [form, setForm] = useState(initialState);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
+
+  const options = services.includes("Autre demande") ? services : [...services, "Autre demande"];
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -37,7 +43,7 @@ export function ContactForm() {
       <div className="contact-panel contact-success-panel" aria-live="polite">
         <span className="success-icon"><Check size={30} strokeWidth={2.2} /></span>
         <h3>Votre message a bien été envoyé.</h3>
-        <p>Merci {form.name.split(" ")[0]}. Notre équipe vous recontacte sous <strong>24 heures ouvrées</strong> au numéro ou à l’adresse indiquée. En attendant, vous pouvez aussi nous appeler au <a href="tel:+21671902345">+216 71 902 345</a>.</p>
+        <p>Merci {form.name.split(" ")[0]}. Notre équipe vous recontacte sous <strong>24 heures ouvrées</strong> au numéro ou à l’adresse indiquée. En attendant, vous pouvez aussi nous appeler au <a href={`tel:${phone.replace(/[^\d+]/g, "")}`}>{phone}</a>.</p>
       </div>
     );
   }
@@ -55,7 +61,7 @@ export function ContactForm() {
       <label>Demandez-vous pour quel service ? <span>*</span>
         <select required value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })}>
           <option value="">Choisir un service</option>
-          {SERVICES.map((service) => <option key={service} value={service}>{service}</option>)}
+          {options.map((service) => <option key={service} value={service}>{service}</option>)}
         </select>
       </label>
       <label>Votre message <span>*</span><textarea required minLength={15} maxLength={2000} rows={5} placeholder="Parlez-nous de votre activité et de ce dont vous avez besoin..." value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} /></label>

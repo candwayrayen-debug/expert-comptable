@@ -1,15 +1,20 @@
-import Link from "next/link";
 import { ArrowUpRight, Mail, MapPin, Phone } from "lucide-react";
+import Link from "next/link";
+import { getServices, readSettings } from "@/lib/content";
+import { telHref } from "@/lib/format";
 
-const expertises = [
-  "Tenue de comptabilité",
-  "Fiscalité & conformité",
-  "Audit & commissariat aux comptes",
-  "Création d'entreprise",
-  "Paie & social",
-];
+/**
+ * Le pied de page lit lui-même ses données plutôt que de les recevoir en
+ * props : il est ainsi utilisable tel quel sur les pages légales et la page
+ * 404, et ne peut pas diverger de la page d'accueil. Les lectures ont un repli
+ * sur le contenu livré avec le site si la base est indisponible.
+ */
+export async function SiteFooter() {
+  const [settings, services] = await Promise.all([readSettings(), getServices()]);
 
-export function SiteFooter() {
+  const { contact_address: address, contact_phone: phone, contact_email: email, contact_hours: hours } = settings;
+  const mapsQuery = encodeURIComponent(address);
+
   return (
     <footer className="site-footer">
       <div className="container">
@@ -26,7 +31,7 @@ export function SiteFooter() {
                 <span className="brand-sub">EXPERT-COMPTABLE · TUNIS</span>
               </span>
             </Link>
-            <p>Cabinet d’expertise comptable à Tunis. Nous accompagnons les entreprises tunisiennes et les investisseurs avec rigueur et proximité depuis 2005.</p>
+            {settings.footer_blurb && <p>{settings.footer_blurb}</p>}
           </div>
           <div className="footer-links-column">
             <h3>Navigation</h3>
@@ -38,14 +43,14 @@ export function SiteFooter() {
           </div>
           <div className="footer-links-column">
             <h3>Expertises</h3>
-            {expertises.map((item) => <span key={item}>{item}</span>)}
+            {services.slice(0, 6).map((service) => <span key={service.id}>{service.title}</span>)}
           </div>
           <div className="footer-contact">
             <h3>Le cabinet</h3>
-            <a href="https://www.google.com/maps/search/?api=1&query=avenue%20Habib%20Bourguiba%20Tunis%201003" target="_blank" rel="noopener noreferrer"><MapPin size={15} /> Résidence El Kheireddine, av. Habib Bourguiba, Tunis 1003</a>
-            <a href="tel:+21671902345"><Phone size={15} /> +216 71 902 345</a>
-            <a href="mailto:contact@benselem-ec.tn"><Mail size={15} /> contact@benselem-ec.tn <ArrowUpRight size={11} /></a>
-            <span className="footer-hours">Lundi – Vendredi · 9 h – 17 h 30</span>
+            <a href={`https://www.google.com/maps/search/?api=1&query=${mapsQuery}`} target="_blank" rel="noopener noreferrer"><MapPin size={15} /> {address}</a>
+            <a href={telHref(phone)}><Phone size={15} /> {phone}</a>
+            <a href={`mailto:${email}`}><Mail size={15} /> {email} <ArrowUpRight size={11} /></a>
+            <span className="footer-hours">{hours}</span>
           </div>
         </div>
         <div className="footer-bottom">
